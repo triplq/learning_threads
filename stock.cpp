@@ -3,25 +3,34 @@
 #include <thread>
 #include <vector>
 #include <functional>
+#include <chrono>
 
 class Stock {
 private:
 	mutable std::mutex m_;
 	int items_ = 10;
+	
 public:
+	bool try_take() {
+		std::lock_guard<std::mutex> lk(m_);
+		if (items_ > 0) {
+			items_--;
+			return true;
+		}
+		return false;
+	}
+
 	int count() const {
 		std::lock_guard<std::mutex> lk(m_);
 		return items_;
 	}
-	void take() {
-		std::lock_guard<std::mutex> lk(m_);
-		items_--;
-	}
+
+	
 };
 
 void buyer(Stock& s) {
-	if (s.count() > 0) {
-		s.take();
+	if (s.try_take()) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(100));
 	}
 }
 
