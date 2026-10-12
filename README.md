@@ -1,2 +1,2 @@
 Compiling with 
-clang++ -fsanitize=thread -std=c++17 *.cpp -o * && ./*
+clang++ -fsanitize=thread -std=c++17 -.cpp -o - && ./-
