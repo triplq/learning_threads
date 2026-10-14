@@ -12,6 +12,7 @@ private:
 	std::mutex m;
 	std::unique_ptr<T[]> queue;
 	size_t size;
+	size_t begin;
 	size_t capacity;
 	bool stopped = false;
 	std::condition_variable cv;
@@ -27,38 +28,43 @@ private:
 	}
 
 public:
-	SafeQueue() : queue(std::make_unique<T[]>(1)), size(0), capacity(1) { }
+	SafeQueue() : queue(std::make_unique<T[]>(1)), size(0), begin(0), capacity(1) { }
 
 	void push(T t) {
-		{
-			std::lock_guard<std::mutex> lk(m);
-			if (size == capacity) 
-				increase_capacity();
+		if (!stopped) {
+			{
+				std::lock_guard<std::mutex> lk(m);
+				if (size == capacity) 
+					increase_capacity();
 
-			queue[size] = t;
-			size++;
+				queue[size] = std::move(t);
+				size++;
+			}
+			cv.notify_one();
 		}
-		cv.notify_one();
 	}
 
 	bool wait_and_pop(T& out) {
 		T task;
-		while(true) {
+		{
 			std::unique_lock<std::mutex> lock(m);
 
 			cv.wait(lock, [this]{
-				return size != 0 || stopped;
+				return begin != size || stopped;
 			});
 
-			if (size == 0 && stopped) {
+			if (size == begin && stopped) {
 				return false;
 			}
 
-			task = queue[size];
-			size--;
+			if (begin != size) {
+				task = queue[begin];
+				begin++;
+				out = task;
+			}
 		}
 
-		out = task;
+		return true;	
 	}
 
 	void close() {
@@ -70,7 +76,6 @@ public:
 
 int main() {
 	SafeQueue<int> sq;
-	int out;
 	std::vector<std::thread> producers;
 	producers.reserve(2);
 
@@ -86,7 +91,12 @@ int main() {
 	}
 
 	for (size_t i = 0; i < 3; i++) {
-		consumers.emplace_back(&SafeQueue<int>::wait_and_pop, &sq, std::ref(out));
+		consumers.emplace_back([&]{
+			int out;
+			while (sq.wait_and_pop(out)) {
+				// std::cout << out << '\n';
+			}
+		});
 	}
 
 	for (auto& p : producers) {
